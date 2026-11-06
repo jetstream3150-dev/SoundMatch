@@ -1,5 +1,6 @@
 """SoundMatch Web — audio similarity search (publicly reusable audio only)."""
 import tempfile
+from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 import streamlit as st
 
@@ -20,14 +21,26 @@ st.info("現在の検索先はWikimedia Commonsの公開音源です。商用楽
 left,right=st.columns([1,1],gap="large")
 with left:
     st.subheader("01 / 好きな曲を選ぶ")
-    input_mode=st.radio("入力方法",["YouTube URL","音声ファイル"],horizontal=True)
-    youtube_url=st.text_input("YouTubeのURL",placeholder="https://www.youtube.com/watch?v=...",disabled=input_mode!="YouTube URL")
-    audio=st.file_uploader("音楽ファイルをアップロード",type=["mp3","wav","flac","ogg","m4a","aac","opus"],help="最大50MBを目安にしてください",disabled=input_mode!="音声ファイル")
+    input_mode=st.radio("入力方法",["YouTube URL","音声ファイル"],horizontal=True,label_visibility="collapsed")
+    youtube_url=st.text_input("YouTubeのURLを貼り付け",placeholder="https://www.youtube.com/watch?v=...",disabled=input_mode!="YouTube URL")
+    audio=None
+    if input_mode=="YouTube URL" and youtube_url.strip():
+        parsed=urlparse(youtube_url.strip())
+        hostname=(parsed.hostname or "").lower()
+        video_id=(parse_qs(parsed.query).get("v") or [None])[0] if hostname in {"youtube.com","www.youtube.com","m.youtube.com","music.youtube.com"} else parsed.path.strip("/") if hostname=="youtu.be" else None
+        if parsed.scheme=="https" and video_id and len(video_id)==11 and all(c.isalnum() or c in "-_" for c in video_id):
+            st.video("https://www.youtube.com/watch?v="+video_id)
+            st.caption("公式YouTubeプレーヤーで確認できます。音響解析は動画の音声を取得できる場合のみ実行できます。")
+        else:
+            st.warning("有効なYouTube動画URLを貼り付けてください。")
+    if input_mode=="音声ファイル":
+        audio=st.file_uploader("音楽ファイルをアップロード",type=["mp3","wav","flac","ogg","m4a","aac","opus"],help="最大50MBを目安にしてください")
     if audio:
         st.audio(audio)
         st.caption(f"選択中: {audio.name}")
-    start=st.number_input("好きな区間の開始（秒）",min_value=0.0,value=50.0,step=1.0)
-    end=st.number_input("好きな区間の終了（秒）",min_value=1.0,value=75.0,step=1.0)
+    st.caption("好きな区間を秒数で指定（例：Blue Girlの50〜75秒）")
+    start=st.number_input("開始（秒）",min_value=0.0,value=50.0,step=1.0)
+    end=st.number_input("終了（秒）",min_value=1.0,value=75.0,step=1.0)
 with right:
     st.subheader("02 / 音が似た曲を探す")
     query=st.text_input("検索キーワード",value="beatbox",help="公開音源カタログの候補を探すためのキーワード")
