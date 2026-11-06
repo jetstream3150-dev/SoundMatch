@@ -3,3 +3,8 @@ librosa>=0.10.2,<0.12
 soundfile>=0.12.1
 scipy>=1.12
 pyinstaller>=6.0
+
+# Browser deployment
+streamlit>=1.38,<2
+torch>=2.2,<3
+transformers>=4.44,<5
