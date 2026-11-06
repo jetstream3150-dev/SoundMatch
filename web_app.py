@@ -20,7 +20,9 @@ st.info("現在の検索先はWikimedia Commonsの公開音源です。商用楽
 left,right=st.columns([1,1],gap="large")
 with left:
     st.subheader("01 / 好きな曲を選ぶ")
-    audio=st.file_uploader("音楽ファイルをアップロード",type=["mp3","wav","flac","ogg","m4a","aac","opus"],help="最大50MBを目安にしてください")
+    input_mode=st.radio("入力方法",["YouTube URL","音声ファイル"],horizontal=True)
+    youtube_url=st.text_input("YouTubeのURL",placeholder="https://www.youtube.com/watch?v=...",disabled=input_mode!="YouTube URL")
+    audio=st.file_uploader("音楽ファイルをアップロード",type=["mp3","wav","flac","ogg","m4a","aac","opus"],help="最大50MBを目安にしてください",disabled=input_mode!="音声ファイル")
     if audio:
         st.audio(audio)
         st.caption(f"選択中: {audio.name}")
@@ -33,7 +35,7 @@ with right:
                     help="AIは初回に大きなモデルを取得します。サーバーのメモリ不足になる場合があります。")
     limit=st.slider("検索する候補数",5,40,15,step=5)
     st.caption("AIモードは高負荷です。小規模な無料サーバーでは使用できない場合があります。")
-    search=st.button("✦ 似た曲を検索する",type="primary",use_container_width=True,disabled=not bool(audio))
+    search=st.button("✦ 似た曲を検索する",type="primary",use_container_width=True,disabled=not bool(youtube_url.strip() if input_mode=="YouTube URL" else audio))
 
 if search:
     if not 3 <= end-start <= 60:
@@ -42,16 +44,23 @@ if search:
     if not query.strip():
         st.error("キーワードを入力してください。")
         st.stop()
-    if not audio:
+    if input_mode=="音声ファイル" and not audio:
         st.stop()
-    if audio.size>50_000_000:
+    if input_mode=="音声ファイル" and audio.size>50_000_000:
         st.error("ファイルが大きすぎます。50MB未満のファイルを使ってください。")
         st.stop()
     with tempfile.TemporaryDirectory(prefix="soundmatch_web_") as tmp:
-        suffix=Path(audio.name).suffix.lower()
-        source=Path(tmp)/("reference"+suffix)
-        source.write_bytes(audio.getvalue())
         try:
+            if input_mode=="YouTube URL":
+                from youtube_source import fetch_excerpt
+                with st.spinner("YouTube音声の指定区間を準備中…"):
+                    source=fetch_excerpt(youtube_url,start,end,tmp)
+                analysis_start,analysis_end=0.0,end-start
+            else:
+                suffix=Path(audio.name).suffix.lower()
+                source=Path(tmp)/("reference"+suffix)
+                source.write_bytes(audio.getvalue())
+                analysis_start,analysis_end=start,end
             from online_audio import discover_audio,download_candidate
             from ai_similarity import embed_audio, best_match, similarity
             from acoustic import extract_features,compare
@@ -60,18 +69,18 @@ if search:
             candidates=discover_audio(query,limit)
             results=[]
             if engine.startswith("AI"):
-                ref_times=list(range(int(start),int(end)-1,8)) or [int(start)]
-                embeddings=[embed_audio(source,t,min(10,end-t)) for t in ref_times if end-t>=2]
+                ref_times=list(range(int(analysis_start),int(analysis_end)-1,8)) or [int(analysis_start)]
+                embeddings=[embed_audio(source,t,min(10,analysis_end-t)) for t in ref_times if analysis_end-t>=2]
                 if not embeddings:
                     raise ValueError("基準区間の音声が短すぎます")
             else:
-                ref=extract_features(source,start,end-start)
+                ref=extract_features(source,analysis_start,analysis_end-analysis_start)
             for idx,item in enumerate(candidates):
                 try:
                     filename=Path(tmp)/("candidate"+Path(item["url"].split("?")[0]).suffix.lower())
                     download_candidate(item,filename)
                     if engine.startswith("AI"):
-                        score,moment=best_match(source,filename,start,end,base_embeddings=embeddings)
+                        score,moment=best_match(source,filename,analysis_start,analysis_end,base_embeddings=embeddings)
                         score_display=f"{score:.3f} （cosine）"
                     else:
                         length=float(librosa.get_duration(path=str(filename)))
@@ -116,4 +125,4 @@ if "results" in st.session_state:
         with col2:
             st.metric("近さ（参考）",item["score"])
         st.divider()
-st.caption("音源は解析中のみ一時保存され、検索後に削除されます。権利者の許諾を得た音声をアップロードしてください。")
+st.caption("音源は解析時のみ一時保存され、検索後に削除されます。YouTubeの利用規約に従い、保存・解析の許可がある動画のみ利用してください。YouTube側で取得が制限される場合があります。")
