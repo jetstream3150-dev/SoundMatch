@@ -1,0 +1,3 @@
+-r requirements.txt
+-r requirements-ai.txt
+pyinstaller>=6.0
