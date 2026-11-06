@@ -50,7 +50,60 @@ with right:
     st.caption("AIモードは高負荷です。小規模な無料サーバーでは使用できない場合があります。")
     search=st.button("✦ 似た曲を検索する",type="primary",use_container_width=True,disabled=not bool(youtube_url.strip() if input_mode=="YouTube URL" else audio))
 
-if search:
+
+if search and input_mode=="YouTube URL":
+    try:
+        from discovery_fallback import youtube_details,term_from_details,youtube_search,musicbrainz_recordings,suggestion_queries
+        api_key=st.secrets.get("YOUTUBE_API_KEY","")
+        with st.spinner("YouTube公式APIから曲情報を取得中…"):
+            details=youtube_details(youtube_url,api_key)
+        artist,title=term_from_details(details)
+        st.session_state["youtube_reference"]={"artist":artist,"title":title,"channel":details["channel"]}
+        st.session_state.pop("results",None)
+        st.session_state["searched"]=0
+        suggestions=[]
+        queries=suggestion_queries(artist,title,details["tags"],query)
+        for q in queries[:2]:
+            try:
+                suggestions.extend(youtube_search(q,api_key,6))
+            except Exception:
+                pass
+        # Metadata candidates are not CLAP/audio similarity results.
+        try:
+            suggestions.extend(musicbrainz_recordings(artist,title))
+        except Exception:
+            pass
+        seen=set()
+        distinct=[]
+        for item in suggestions:
+            key=item["youtube_url"]
+            if key not in seen:
+                distinct.append(item)
+                seen.add(key)
+        st.session_state["metadata_candidates"]=distinct
+    except Exception as exc:
+        st.error(f"公式APIでの楽曲検索に失敗しました: {exc}")
+        st.info("StreamlitのApp settings → SecretsにYOUTUBE_API_KEYを設定してください。")
+        st.session_state.pop("metadata_candidates",None)
+else:
+    if search and input_mode=="音声ファイル":
+        st.session_state.pop("metadata_candidates",None)
+
+if "metadata_candidates" in st.session_state and input_mode=="YouTube URL":
+    st.divider()
+    st.subheader("03 / YouTubeで聴ける関連楽曲")
+    ref=st.session_state.get("youtube_reference",{})
+    st.caption(f"参照曲: {ref.get('artist','')} — {ref.get('title','')}")
+    st.warning("以下はタイトル・タグ・検索語から見つけた候補です。指定した50〜75秒の音声を比較した結果ではありません。")
+    for idx,item in enumerate(st.session_state["metadata_candidates"][:25],1):
+        a,b=st.columns([5,1])
+        with a:
+            st.markdown(f"**{idx}. {item['title']}**")
+            st.caption(f"{item['artist']} • {item['basis']}")
+        with b:
+            st.link_button("▶ YouTube",item["youtube_url"],key=f"yt_{idx}")
+
+if search and input_mode=="音声ファイル":
     if not 3 <= end-start <= 60:
         st.error("区間は3〜60秒で指定してください。")
         st.stop()
