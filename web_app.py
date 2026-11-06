@@ -106,7 +106,12 @@ if search:
                 "page":p[3]["page"],"license":p[3]["license"]} for p in results]
             st.session_state["searched"]=len(candidates)
         except Exception as exc:
-            st.error(f"検索に失敗しました: {exc}")
+            detail=str(exc)
+            if "403" in detail or "Forbidden" in detail or "Sign in to confirm" in detail:
+                st.error("YouTube側がこのサーバーからの音声取得を拒否しました（HTTP 403）。URLや区間の入力ミスではありません。")
+                st.info("「音声ファイル」に切り替え、保存・解析が許可されたMP3やWAVをアップロードしてください。YouTube側のアクセス制限を回避する機能は提供していません。")
+            else:
+                st.error(f"検索に失敗しました: {detail}")
             st.session_state.pop("results",None)
 
 if "results" in st.session_state:
