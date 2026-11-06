@@ -82,3 +82,16 @@ def suggestion_queries(artist,title,tags,keyword):
         seeds.append(f"{term} {artist} similar music")
         seeds.append(f"{term} beatbox performance")
     return list(dict.fromkeys(seeds))[:8]
+
+
+def youtube_search(query,key,max_results=8):
+    params=urllib.parse.urlencode({"part":"snippet","q":query,"type":"video","maxResults":max_results,"key":key,"videoCategoryId":"10"})
+    data=request_json("https://www.googleapis.com/youtube/v3/search?"+params)
+    result=[]
+    for row in data.get("items",[]):
+        vid=(row.get("id") or {}).get("videoId")
+        sn=row.get("snippet") or {}
+        if vid:
+            result.append({"title":sn.get("title",""),"artist":sn.get("channelTitle",""),
+                "youtube_url":"https://www.youtube.com/watch?v="+vid,"basis":"YouTube公式API・キーワード検索"})
+    return result
