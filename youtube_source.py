@@ -17,11 +17,16 @@ def fetch_excerpt(url, start, end, folder):
     """Fetch audio; convert requested segment to WAV; delete intermediates with caller's TemporaryDirectory."""
     url=check_url(url)
     folder=Path(folder)
+    def limit_hook(d):
+        if d.get("status") == "downloading":
+            size=d.get("downloaded_bytes",0)
+            if size>MAX_BYTES:
+                raise ValueError("60MBを超えたためダウンロードを中止しました")
     options={
         "format":"bestaudio[filesize<60M]/bestaudio[filesize_approx<60M]/bestaudio",
         "outtmpl":str(folder/"youtube_source.%(ext)s"),
         "noplaylist":True,"quiet":True,"no_warnings":True,
-        "socket_timeout":15,"retries":2,
+        "socket_timeout":15,"retries":2,"progress_hooks":[limit_hook],
         "match_filter":yt_dlp.utils.match_filter_func("duration < 3600"),
     }
     with yt_dlp.YoutubeDL(options) as dl:
