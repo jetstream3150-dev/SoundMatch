@@ -54,7 +54,7 @@ if search:
         try:
             from online_audio import discover_audio,download_candidate
             from ai_similarity import embed_audio, best_match, similarity
-            from app import extract_features,compare
+            from acoustic import extract_features,compare
             import librosa
             progress=st.progress(0,"公開音源を検索中…")
             candidates=discover_audio(query,limit)
