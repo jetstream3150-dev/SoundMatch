@@ -1,0 +1,38 @@
+name: Build SoundMatch AI Windows
+on:
+  push:
+    branches: [main]
+    paths:
+      - '*.py'
+      - 'requirements*.txt'
+      - '.github/workflows/build-windows-ai.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ai-build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install AI dependencies
+        run: python -m pip install -r requirements-ai-build.txt
+      - name: Syntax and interface tests
+        run: |
+          python -m compileall -q .
+          python test_ai.py
+      - name: Package AI application (onedir)
+        run: python -m PyInstaller --clean --noconfirm --onedir --windowed --name SoundMatchAI --collect-all torch --collect-all transformers --collect-all tokenizers --collect-all safetensors --collect-all librosa --collect-all soundfile --collect-all scipy --collect-all numba --hidden-import ai_similarity --hidden-import online_discovery --hidden-import online_audio --hidden-import online_audio_ui app.py
+      - name: Verify package output
+        shell: pwsh
+        run: |
+          if (!(Test-Path 'dist/SoundMatchAI/SoundMatchAI.exe')) { throw 'EXE missing' }
+          Get-FileHash 'dist/SoundMatchAI/SoundMatchAI.exe' -Algorithm SHA256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SoundMatchAI-Windows-Portable
+          path: dist/SoundMatchAI/
+          if-no-files-found: error
