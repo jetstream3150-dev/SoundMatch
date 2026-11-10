@@ -1,6 +1,6 @@
 """SoundMatch Web — audio similarity search (publicly reusable audio only)."""
 import tempfile
-from urllib.parse import urlparse, parse_qs
+from discovery_fallback import video_id, youtube_details, term_from_details, youtube_search, musicbrainz_recordings, suggestion_queries, YouTubeAPIError
 from pathlib import Path
 import streamlit as st
 
@@ -16,7 +16,7 @@ div[data-testid="stMetric"] {background:#1a2541;border:1px solid #34466c;border-
 """,unsafe_allow_html=True)
 st.markdown("## 🎧 SoundMatch")
 st.caption("FIND YOUR SOUND  •  曲の好きな瞬間から、音が近い公開音源を見つける")
-st.info("現在の検索先はWikimedia Commonsの公開音源です。商用楽曲の網羅検索や、類似度の正確な確率表示には対応していません。")
+st.info("YouTube URLでは動画情報から関連曲を探し、音声ファイルではWikimedia Commonsの公開音源と音を比較します。")
 
 left,right=st.columns([1,1],gap="large")
 with left:
@@ -24,84 +24,91 @@ with left:
     input_mode=st.radio("入力方法",["YouTube URL","音声ファイル"],horizontal=True,label_visibility="collapsed")
     youtube_url=st.text_input("YouTubeのURLを貼り付け",placeholder="https://www.youtube.com/watch?v=...",disabled=input_mode!="YouTube URL")
     audio=None
+    reference_id = None
     if input_mode=="YouTube URL" and youtube_url.strip():
-        parsed=urlparse(youtube_url.strip())
-        hostname=(parsed.hostname or "").lower()
-        video_id=(parse_qs(parsed.query).get("v") or [None])[0] if hostname in {"youtube.com","www.youtube.com","m.youtube.com","music.youtube.com"} else parsed.path.strip("/") if hostname=="youtu.be" else None
-        if parsed.scheme=="https" and video_id and len(video_id)==11 and all(c.isalnum() or c in "-_" for c in video_id):
-            st.video("https://www.youtube.com/watch?v="+video_id)
-            st.caption("公式YouTubeプレーヤーで確認できます。音響解析は動画の音声を取得できる場合のみ実行できます。")
-        else:
+        try:
+            reference_id = video_id(youtube_url)
+        except ValueError:
             st.warning("有効なYouTube動画URLを貼り付けてください。")
+        else:
+            st.video("https://www.youtube.com/watch?v="+reference_id)
     if input_mode=="音声ファイル":
         audio=st.file_uploader("音楽ファイルをアップロード",type=["mp3","wav","flac","ogg","m4a","aac","opus"],help="最大50MBを目安にしてください")
     if audio:
         st.audio(audio)
         st.caption(f"選択中: {audio.name}")
-    st.caption("好きな区間を秒数で指定（例：Blue Girlの50〜75秒）")
-    start=st.number_input("開始（秒）",min_value=0.0,value=50.0,step=1.0)
-    end=st.number_input("終了（秒）",min_value=1.0,value=75.0,step=1.0)
+    if input_mode=="音声ファイル":
+        st.caption("好きな区間を秒数で指定（例：Blue Girlの50〜75秒）")
+        start=st.number_input("開始（秒）",min_value=0.0,value=50.0,step=1.0)
+        end=st.number_input("終了（秒）",min_value=1.0,value=75.0,step=1.0)
 with right:
-    st.subheader("02 / 音が似た曲を探す")
-    query=st.text_input("検索キーワード",value="beatbox",help="公開音源カタログの候補を探すためのキーワード")
-    engine=st.radio("比較エンジン",options=["軽量（音色・リズム・低音）","AI（CLAP・高負荷）"],horizontal=False,
-                    help="AIは初回に大きなモデルを取得します。サーバーのメモリ不足になる場合があります。")
-    limit=st.slider("検索する候補数",5,40,15,step=5)
-    st.caption("AIモードは高負荷です。小規模な無料サーバーでは使用できない場合があります。")
-    search=st.button("✦ 似た曲を検索する",type="primary",use_container_width=True,disabled=not bool(youtube_url.strip() if input_mode=="YouTube URL" else audio))
+    if input_mode=="YouTube URL":
+        st.subheader("02 / YouTubeで関連曲を探す")
+        query=st.text_input("検索キーワード（任意）",placeholder="例：beatbox")
+        st.caption("動画タイトル・チャンネル名・タグから候補を探します。")
+    else:
+        st.subheader("02 / 音が似た曲を探す")
+        query=st.text_input("検索キーワード",value="beatbox",help="公開音源カタログの候補を探すためのキーワード")
+        engine=st.radio("比較エンジン",options=["軽量（音色・リズム・低音）","AI（CLAP・高負荷）"],
+                        help="AIは初回に大きなモデルを取得します。サーバーのメモリ不足になる場合があります。")
+        limit=st.slider("検索する候補数",5,40,15,step=5)
+    search=st.button("✦ 似た曲を検索する",type="primary",use_container_width=True,disabled=not bool(reference_id if input_mode=="YouTube URL" else audio))
 
 
 if search and input_mode=="YouTube URL":
+    st.session_state.pop("youtube_search_result", None)
     try:
-        from discovery_fallback import youtube_details,term_from_details,youtube_search,musicbrainz_recordings,suggestion_queries
-        api_key=st.secrets.get("YOUTUBE_API_KEY","")
-        with st.spinner("YouTube公式APIから曲情報を取得中…"):
-            details=youtube_details(youtube_url,api_key)
-        artist,title=term_from_details(details)
-        st.session_state["youtube_reference"]={"artist":artist,"title":title,"channel":details["channel"]}
-        st.session_state.pop("results",None)
-        st.session_state["searched"]=0
-        suggestions=[]
-        queries=suggestion_queries(artist,title,details["tags"],query)
-        for q in queries[:2]:
-            try:
-                suggestions.extend(youtube_search(q,api_key,6))
-            except Exception:
-                pass
-        # Metadata candidates are not CLAP/audio similarity results.
         try:
-            suggestions.extend(musicbrainz_recordings(artist,title))
-        except Exception:
-            pass
-        seen=set()
-        distinct=[]
-        for item in suggestions:
-            key=item["youtube_url"]
-            if key not in seen:
-                distinct.append(item)
-                seen.add(key)
-        st.session_state["metadata_candidates"]=distinct
-    except Exception as exc:
-        st.error(f"公式APIでの楽曲検索に失敗しました: {exc}")
-        st.info("StreamlitのApp settings → SecretsにYOUTUBE_API_KEYを設定してください。")
-        st.session_state.pop("metadata_candidates",None)
-else:
-    if search and input_mode=="音声ファイル":
-        st.session_state.pop("metadata_candidates",None)
+            api_key = st.secrets.get("YOUTUBE_API_KEY", "")
+        except FileNotFoundError:
+            api_key = ""
+        except ValueError:
+            raise YouTubeAPIError("Streamlit SecretsのTOML形式を確認してください。") from None
+        if not isinstance(api_key, str):
+            raise YouTubeAPIError("Streamlit SecretsのYOUTUBE_API_KEYを文字列として設定してください。")
+        api_key = api_key.strip()
+        with st.spinner("YouTube公式APIから関連曲を検索中…"):
+            details = youtube_details(youtube_url, api_key)
+            artist, title = term_from_details(details)
+            source_url = "https://www.youtube.com/watch?v=" + details["id"]
+            candidates = {}
+            search_error = None
+            for term in suggestion_queries(artist, title, details["tags"], query):
+                try:
+                    for item in youtube_search(term, api_key, 8):
+                        if item["youtube_url"] != source_url:
+                            candidates.setdefault(item["youtube_url"], item)
+                except YouTubeAPIError as exc:
+                    search_error = str(exc)
+                    break
+            for item in musicbrainz_recordings(artist, title):
+                if (item["title"].casefold(), item["artist"].casefold()) != (title.casefold(), artist.casefold()):
+                    candidates.setdefault(item["youtube_url"], item)
+        st.session_state["youtube_search_result"] = {
+            "input": (reference_id, query), "artist": artist, "title": title,
+            "candidates": list(candidates.values()), "warning": search_error,
+        }
+    except ValueError as exc:
+        st.error(str(exc))
 
-if "metadata_candidates" in st.session_state and input_mode=="YouTube URL":
+result = st.session_state.get("youtube_search_result")
+if input_mode=="YouTube URL" and result and result["input"] == (reference_id, query):
     st.divider()
     st.subheader("03 / YouTubeで聴ける関連楽曲")
-    ref=st.session_state.get("youtube_reference",{})
-    st.caption(f"参照曲: {ref.get('artist','')} — {ref.get('title','')}")
-    st.warning("以下はタイトル・タグ・検索語から見つけた候補です。指定した50〜75秒の音声を比較した結果ではありません。")
-    for idx,item in enumerate(st.session_state["metadata_candidates"][:25],1):
+    st.caption(f"参照曲: {result['artist']} — {result['title']}")
+    st.caption("動画や楽曲の情報をもとに探した候補です。")
+    if result["warning"]:
+        st.warning(result["warning"])
+    if not result["candidates"]:
+        st.info("関連曲が見つかりませんでした。検索キーワードを変えて再試行してください。")
+    for idx,item in enumerate(result["candidates"][:25],1):
         a,b=st.columns([5,1])
         with a:
             st.markdown(f"**{idx}. {item['title']}**")
             st.caption(f"{item['artist']} • {item['basis']}")
         with b:
-            st.link_button("▶ YouTube",item["youtube_url"],key=f"yt_{idx}")
+            label = "▶ YouTubeで検索" if item["basis"] == "MusicBrainz楽曲情報" else "▶ YouTubeで再生"
+            st.link_button(label,item["youtube_url"])
 
 if search and input_mode=="音声ファイル":
     if not 3 <= end-start <= 60:
@@ -180,7 +187,7 @@ if search and input_mode=="音声ファイル":
                 st.error(f"検索に失敗しました: {detail}")
             st.session_state.pop("results",None)
 
-if "results" in st.session_state:
+if input_mode=="音声ファイル" and "results" in st.session_state:
     hits=st.session_state["results"]
     st.divider()
     st.subheader("03 / 類似曲ランキング")

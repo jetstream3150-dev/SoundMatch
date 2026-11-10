@@ -18,6 +18,10 @@ YOUTUBE_API_KEY = "YOUR_KEY_HERE"
 
 5. Save and restart the app if needed. **Do not paste your API key in GitHub or send it in Discord.**
 
-Note: YouTube `search.list` consumes substantial API quota. The app sends two search requests per click. Keys, quotas and cloud access must be configured by the app owner.
+Each search uses one `videos.list` call and up to two `search.list` calls. The app sends the key in a server-side HTTP header. For local development, use `.streamlit/secrets.toml`, which Git ignores.
+
+## Verify the deployment
+
+Open the app deployed from `main` with `web_app.py` as its entry point. Paste a public YouTube video URL, then search. Check that the reference title appears and that a YouTube result opens a different video. MusicBrainz entries open a YouTube search page. If the app reports an API or quota error, check Google Cloud for the project used to create the key.
 
 For the YouTube URL mode, video music search is best-effort and does not identify segment-level audio similarity. CLAP scoring requires an authorized reference audio file and authorized candidate audio.
