@@ -102,13 +102,19 @@ if input_mode=="YouTube URL" and result and result["input"] == (reference_id, qu
     if not result["candidates"]:
         st.info("関連曲が見つかりませんでした。検索キーワードを変えて再試行してください。")
     for idx,item in enumerate(result["candidates"][:25],1):
-        a,b=st.columns([5,1])
+        a,b=st.columns([3,2])
         with a:
             st.markdown(f"**{idx}. {item['title']}**")
             st.caption(f"{item['artist']} • {item['basis']}")
         with b:
-            label = "▶ YouTubeで検索" if item["basis"] == "MusicBrainz楽曲情報" else "▶ YouTubeで再生"
-            st.link_button(label,item["youtube_url"])
+            try:
+                candidate_id = video_id(item["youtube_url"])
+            except ValueError:
+                st.link_button("▶ YouTubeで検索", item["youtube_url"])
+            else:
+                st.video("https://www.youtube.com/watch?v=" + candidate_id)
+                st.link_button("YouTubeで開く ↗", item["youtube_url"])
+        st.divider()
 
 if search and input_mode=="音声ファイル":
     if not 3 <= end-start <= 60:
